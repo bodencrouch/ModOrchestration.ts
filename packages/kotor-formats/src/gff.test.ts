@@ -82,7 +82,9 @@ function expectStructEqual(a: GffStruct, b: GffStruct): void {
       });
     } else if (fa.type === GffFieldType.Float) expect(fb.value).toBeCloseTo(fa.value as number, 6);
     else if (fa.type === GffFieldType.Orientation || fa.type === GffFieldType.Vector) {
-      for (const k of Object.keys(fa.value as object)) expect((fb.value as Record<string, number>)[k]).toBeCloseTo((fa.value as Record<string, number>)[k]!, 6);
+      const va = fa.value as unknown as Record<string, number>;
+      const vb = fb.value as unknown as Record<string, number>;
+      for (const k of Object.keys(va)) expect(vb[k]).toBeCloseTo(va[k]!, 6);
     } else expect(fb.value).toEqual(fa.value);
   }
 }

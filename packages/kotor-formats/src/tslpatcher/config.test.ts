@@ -139,10 +139,11 @@ describe("parseChangesIni", () => {
 
   it("parses TLKList in numeric order", () => {
     expect(cfg.tlk.sourceFile).toBe("custom.tlk");
+    // numbered keys are ordered by suffix across families (ties keep file order)
     expect(cfg.tlk.modifiers).toEqual([
       { kind: "append", token: 0, sourceIndex: 3 },
-      { kind: "append", token: 1, sourceIndex: 7 },
       { kind: "replace", dialogIndex: 100, sourceIndex: 0, sourceFile: "tlk_fix" },
+      { kind: "append", token: 1, sourceIndex: 7 },
       { kind: "direct", token: 2, text: "Direct text", sound: "n_direct" },
     ]);
   });

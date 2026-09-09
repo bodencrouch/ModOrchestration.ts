@@ -655,8 +655,8 @@ export class TslPatcher {
         break;
       }
       case "addColumn": {
-        if (table.hasColumn(m.columnLabel)) throw new PatcherFileError(`[${section}] column "${m.columnLabel}" already exists in ${filename}`);
-        table.addColumn(m.columnLabel, m.defaultValue);
+        if (table.hasColumn(m.columnLabel)) this.warn(`[${section}] column "${m.columnLabel}" already exists in ${filename}; applying the inserts to the existing column`);
+        else table.addColumn(m.columnLabel, m.defaultValue);
         for (const ins of m.indexInserts) {
           if (!table.getRow(ins.index)) throw new PatcherFileError(`[${section}] I${ins.index}: no such row in ${filename}`);
           table.setCell(ins.index, m.columnLabel, this.resolveCell(ins.value, table, m.columnLabel));

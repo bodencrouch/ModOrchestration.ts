@@ -2,7 +2,7 @@ import { promises as fsp } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { Encapsulated, readEncapsulated } from "../erf.js";
+import { Encapsulated, readEncapsulated, writeErf } from "../erf.js";
 import { GffFieldType, type GffLocString, type GffStruct, addField, createGffRoot, createGffStruct, createLocString, getFieldByPath, readGff, writeGff } from "../gff.js";
 import { ResourceTypes } from "../restypes.js";
 import { createSsf, readSsf, writeSsf } from "../ssf.js";
@@ -138,7 +138,7 @@ async function buildFixture(): Promise<void> {
   const mod = new Encapsulated("MOD ");
   mod.set("m_area", ResourceTypes.are, smallGff("ARE", "original"));
   mod.set("other", ResourceTypes.git, smallGff("GIT", "keep"));
-  await fsp.writeFile(path.join(gameDir, "Modules", "test.mod"), writeEncapsulatedForTest(mod));
+  await fsp.writeFile(path.join(gameDir, "Modules", "test.mod"), writeErf(mod));
 
   const append = new Tlk(0);
   append.add("New Zero");
@@ -150,15 +150,6 @@ async function buildFixture(): Promise<void> {
   await fsp.writeFile(path.join(dataDir, "hack.ncs"), Uint8Array.from([0x4e, 0x43, 0x53, 0x20, 0x56, 0x31, 0x2e, 0x30, 0x42, 0x00, 0x00, 0x00, 0x10]));
   await fsp.writeFile(path.join(dataDir, "present.ncs"), Uint8Array.from([1, 2, 3]));
   await fsp.writeFile(path.join(dataDir, "changes.ini"), CHANGES);
-}
-
-function writeEncapsulatedForTest(enc: Encapsulated): Uint8Array {
-  // imported lazily to keep the fixture helper self-contained
-  return writeErfSync(enc);
-}
-import { writeErf } from "../erf.js";
-function writeErfSync(enc: Encapsulated): Uint8Array {
-  return writeErf(enc);
 }
 
 beforeEach(buildFixture);
@@ -260,6 +251,7 @@ describe("TslPatcher", () => {
     const log = await new TslPatcher({ tslpatchdataDir: dataDir, gameDir, fs, backupDir: path.join(modDir, "b2") }).apply(parseChangesIni(CHANGES));
     expect(log.errors).toEqual([]);
     expect(log.warnings.some((w) => /new_item\.uti already exists/.test(w))).toBe(true);
+    expect(log.warnings.some((w) => /column "newcol" already exists/.test(w))).toBe(true);
     const spells = read2da(await fsp.readFile(path.join(gameDir, "Override", "spells.2da")));
     expect(spells.height).toBe(3);
     expect(spells.getCell(2, "name")).toBe("6"); // StrRef1 of the second run

@@ -212,43 +212,53 @@ export class BinaryWriter {
   }
 
   u8(v: number): this {
-    this.view.setUint8(this.ensure(1), v & 0xff);
+    const p = this.ensure(1);
+    this.view.setUint8(p, v & 0xff);
     return this;
   }
   i8(v: number): this {
-    this.view.setInt8(this.ensure(1), v);
+    const p = this.ensure(1);
+    this.view.setInt8(p, v);
     return this;
   }
   u16(v: number): this {
-    this.view.setUint16(this.ensure(2), v & 0xffff, true);
+    const p = this.ensure(2);
+    this.view.setUint16(p, v & 0xffff, true);
     return this;
   }
   i16(v: number): this {
-    this.view.setInt16(this.ensure(2), v, true);
+    const p = this.ensure(2);
+    this.view.setInt16(p, v, true);
     return this;
   }
   u32(v: number): this {
-    this.view.setUint32(this.ensure(4), v >>> 0, true);
+    const p = this.ensure(4);
+    this.view.setUint32(p, v >>> 0, true);
     return this;
   }
   i32(v: number): this {
-    this.view.setInt32(this.ensure(4), v | 0, true);
+    const p = this.ensure(4);
+    this.view.setInt32(p, v | 0, true);
     return this;
   }
   u64(v: bigint | number): this {
-    this.view.setBigUint64(this.ensure(8), BigInt.asUintN(64, BigInt(v)), true);
+    const p = this.ensure(8);
+    this.view.setBigUint64(p, BigInt.asUintN(64, BigInt(v)), true);
     return this;
   }
   i64(v: bigint | number): this {
-    this.view.setBigInt64(this.ensure(8), BigInt.asIntN(64, BigInt(v)), true);
+    const p = this.ensure(8);
+    this.view.setBigInt64(p, BigInt.asIntN(64, BigInt(v)), true);
     return this;
   }
   f32(v: number): this {
-    this.view.setFloat32(this.ensure(4), v, true);
+    const p = this.ensure(4);
+    this.view.setFloat32(p, v, true);
     return this;
   }
   f64(v: number): this {
-    this.view.setFloat64(this.ensure(8), v, true);
+    const p = this.ensure(8);
+    this.view.setFloat64(p, v, true);
     return this;
   }
   bytes(data: Uint8Array): this {
