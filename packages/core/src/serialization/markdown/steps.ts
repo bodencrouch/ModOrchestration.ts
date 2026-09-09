@@ -18,7 +18,7 @@
  */
 import { createInstruction } from "../../model/defaults.js";
 import { isGuid, normalizeGuid, toBracedGuid } from "../../model/guid.js";
-import type { ActionType, Guid, Instruction, Platform } from "../../model/types.js";
+import type { ActionType, Guid, Instruction } from "../../model/types.js";
 import { normalizeActionType } from "../normalize.js";
 
 const STEP_RE = /^\s*(?:(?:\d+[.)])|[-*+])?\s*\*\*([A-Za-z][A-Za-z ]*?)\*\*:?\s*(.*)$/;
@@ -130,7 +130,7 @@ function parseStepBody(
       let mm: RegExpExecArray | null;
       if ((mm = /^requires\s+(.+)$/i.exec(p))) instr.dependencies.push(...splitList(mm[1]).map(asGuid));
       else if ((mm = /^conflicts\s+(.+)$/i.exec(p))) instr.restrictions.push(...splitList(mm[1]).map(asGuid));
-      else if ((mm = /^(PC|Mobile)\s+only$/i.exec(p))) instr.platform = (mm[1][0].toUpperCase() + mm[1].slice(1).toLowerCase()) as Platform;
+      else if ((mm = /^(PC|Mobile)\s+only$/i.exec(p))) instr.platform = mm[1].toLowerCase() === "pc" ? "PC" : "Mobile";
     }
     text = text.replace(ANNOTATION_RE, "");
   }

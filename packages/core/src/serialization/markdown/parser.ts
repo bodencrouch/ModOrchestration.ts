@@ -192,6 +192,7 @@ function parseModSection(section: Section, state: ParseState, isWidescreen: bool
     if (guidKey) delete rec[guidKey];
     if (!Object.keys(rec).some((k) => k.toLowerCase() === "name")) rec.Name = name;
     rec.Guid = guid ?? uniqueStableGuid(name, state);
+    injectStableGuids(rec, rec.Guid as Guid);
     const before = state.ctx.warnings.length;
     mod = modFromRecord(rec, state.ctx, 0);
     // Re-label lenient warnings with the mod name.
@@ -341,21 +342,13 @@ function parseModSection(section: Section, state: ParseState, isWidescreen: bool
   }
 
   // Instructions: hidden block wins, then structured steps, then heuristics.
-  if (!pending.hadInstructions) {
-    const parsed = parseStructuredSteps(stepsFromLabels, (i) => stableChildGuid(guid ?? mod.guid, "instruction", i));
-    for (const w of parsed.warnings) state.warnings.push(`${modLabel}: ${w}`);
-    if (parsed.instructions.length) {
-      mod.instructions = parsed.instructions;
-      pending.hadInstructions = true;
-      if (parsed.prose.length) mod.directions = appendText(mod.directions, parsed.prose.join("\n"));
-    } else if (stepsFromLabels.length) {
-      const prose = trimLines(stepsFromLabels);
-      if (prose) mod.directions = appendText(mod.directions, prose);
-    }
-  } else if (stepsFromLabels.length) {
-    const prose = trimLines(stepsFromLabels);
-    if (prose) mod.directions = appendText(mod.directions, prose);
+  const parsed = parseStructuredSteps(stepsFromLabels, (i) => stableChildGuid(guid ?? mod.guid, "instruction", i));
+  for (const w of parsed.warnings) state.warnings.push(`${modLabel}: ${w}`);
+  if (!pending.hadInstructions && parsed.instructions.length) {
+    mod.instructions = parsed.instructions;
+    pending.hadInstructions = true;
   }
+  if (parsed.prose.length) mod.directions = appendText(mod.directions, parsed.prose.join("\n"));
   if (!pending.hadInstructions && state.autoInstructions) {
     mod.instructions = generateInstructionsFromDescription(mod);
     state.warnings.push(`${modLabel}: instructions auto-generated from installation method and links`);
@@ -381,6 +374,28 @@ function parseOptionEntry(entry: LabelEntry, mod: ModComponent, index: number, s
   if (description) option.description = description;
   if (parsed.prose.length) option.directions = parsed.prose.join("\n");
   return option;
+}
+
+function findKey(rec: UnknownRecord, name: string): string | undefined {
+  return Object.keys(rec).find((k) => k.toLowerCase() === name);
+}
+
+/** Give GUID-less instructions/options of a hidden record deterministic GUIDs derived from the parent. */
+function injectStableGuids(rec: UnknownRecord, parentGuid: Guid): void {
+  const children = (key: string): UnknownRecord[] => {
+    const k = findKey(rec, key);
+    const v = k ? rec[k] : undefined;
+    return Array.isArray(v) ? v.filter((x): x is UnknownRecord => typeof x === "object" && x !== null && !Array.isArray(x)) : [];
+  };
+  [...children("instructions"), ...children("instruction")].forEach((instr, i) => {
+    const k = findKey(instr, "guid");
+    if (!k || !isGuid(String(instr[k]))) instr[k ?? "Guid"] = stableChildGuid(parentGuid, "instruction", i);
+  });
+  [...children("options"), ...children("option")].forEach((opt, i) => {
+    const k = findKey(opt, "guid");
+    if (!k || !isGuid(String(opt[k]))) opt[k ?? "Guid"] = stableChildGuid(parentGuid, "option", i);
+    injectStableGuids(opt, String(opt[k ?? "Guid"]));
+  });
 }
 
 function uniqueStableGuid(name: string, state: ParseState): Guid {
