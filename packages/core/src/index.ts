@@ -15,3 +15,7 @@ export * from "./widescreen/index.js";
 export * from "./settings/index.js";
 export * from "./logging/index.js";
 export * from "./game/index.js";
+
+// Both serialization/markdown/autoInstructions and downloads/manager define a
+// sanitizeFileName; the downloader one is the canonical public export.
+export { sanitizeFileName } from "./downloads/index.js";
