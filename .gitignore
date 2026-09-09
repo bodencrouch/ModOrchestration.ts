@@ -1,0 +1,10 @@
+node_modules/
+dist/
+out/
+release/
+coverage/
+*.log
+.DS_Store
+.vite/
+*.tsbuildinfo
+.modsync-test-*/

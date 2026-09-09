@@ -1,0 +1,27 @@
+{
+  "name": "modsync",
+  "version": "2.0.0",
+  "private": true,
+  "description": "ModSync: a multi-mod instruction builder and installer for KOTOR 1 and 2 (TypeScript, hybrid Electron / web server)",
+  "license": "GPL-3.0-or-later",
+  "packageManager": "pnpm@10.33.0",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "build": "pnpm -r --filter './packages/**' run build",
+    "typecheck": "pnpm -r --filter './packages/**' run typecheck",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint . --ext .ts,.tsx",
+    "dev:server": "pnpm --filter @modsync/server run dev",
+    "dev:web": "pnpm --filter @modsync/web run dev",
+    "dev:electron": "pnpm --filter @modsync/electron run dev",
+    "start:web": "pnpm --filter @modsync/server run start",
+    "modsync": "pnpm --filter @modsync/cli run modsync"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0",
+    "tsx": "^4.19.0"
+  }
+}

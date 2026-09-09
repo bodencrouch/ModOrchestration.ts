@@ -1,0 +1,17 @@
+{
+  "name": "@modsync/cli",
+  "version": "2.0.0",
+  "type": "module",
+  "bin": { "modsync": "./dist/main.js" },
+  "main": "./dist/main.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "modsync": "tsx src/main.ts"
+  },
+  "dependencies": {
+    "@modsync/core": "workspace:*",
+    "@modsync/server": "workspace:*",
+    "commander": "^13.0.0"
+  }
+}
