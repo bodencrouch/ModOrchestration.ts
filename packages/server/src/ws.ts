@@ -8,7 +8,7 @@
  * not answer two pings in a row is dropped.
  */
 import type { FastifyInstance } from "fastify";
-import type { WebSocket } from "ws";
+import type { WebSocket } from "@fastify/websocket";
 import type { UserPromptAnswer } from "@modsync/core";
 import type { AppState } from "./state.js";
 import type { ClientMessage, EventEnvelope } from "./types.js";
@@ -50,7 +50,7 @@ export function handleConnection(socket: WebSocket, state: AppState): void {
   }, HEARTBEAT_INTERVAL_MS);
   heartbeat.unref?.();
 
-  socket.on("message", (raw) => {
+  socket.on("message", (raw: unknown) => {
     let msg: ClientMessage;
     try {
       msg = JSON.parse(String(raw)) as ClientMessage;
@@ -95,7 +95,7 @@ export function handleConnection(socket: WebSocket, state: AppState): void {
     unsubscribe();
   };
   socket.on("close", cleanup);
-  socket.on("error", (err) => {
+  socket.on("error", (err: Error) => {
     state.logger.debug(`ws error: ${err.message}`);
     cleanup();
   });
