@@ -1,10 +1,12 @@
 import type { ActionType, Guid, Instruction, InstructionFile, MainConfig, ModComponent, ModOption } from "../types";
 
 export function newGuid(): Guid {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) return crypto.randomUUID();
-  // RFC 4122 v4 fallback
+  const c = globalThis.crypto as Crypto | undefined;
+  if (c && typeof c.randomUUID === "function") return c.randomUUID();
+  // RFC 4122 v4 fallback (insecure contexts lack randomUUID)
   const b = new Uint8Array(16);
-  crypto.getRandomValues(b);
+  if (c) c.getRandomValues(b);
+  else for (let i = 0; i < 16; i++) b[i] = Math.floor(Math.random() * 256);
   b[6] = (b[6] & 0x0f) | 0x40;
   b[8] = (b[8] & 0x3f) | 0x80;
   const h = [...b].map((x) => x.toString(16).padStart(2, "0")).join("");

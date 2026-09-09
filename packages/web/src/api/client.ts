@@ -39,7 +39,24 @@ export type EventHandler = (envelope: EventEnvelope) => void;
 
 export class EventBus {
   private handlers = new Set<EventHandler>();
+  /** Recent envelopes keyed by seq, used to tell replayed duplicates from a restarted server. */
+  private recent = new Map<number, string>();
   lastSeq = 0;
+
+  /**
+   * True when this envelope was already delivered (a replay after reconnect).
+   * If the seq is not newer but the payload differs from what we saw at that
+   * seq, the server restarted its counter: the bus resets and accepts it.
+   */
+  isDuplicate(envelope: EventEnvelope): boolean {
+    if (envelope.seq > this.lastSeq) return false;
+    const seen = this.recent.get(envelope.seq);
+    if (seen !== undefined && seen === JSON.stringify(envelope.event)) return true;
+    if (seen === undefined && this.recent.size > 0 && envelope.seq >= Math.min(...this.recent.keys())) return true;
+    this.lastSeq = envelope.seq - 1;
+    this.recent.clear();
+    return false;
+  }
 
   on(handler: EventHandler): () => void {
     this.handlers.add(handler);
@@ -48,6 +65,8 @@ export class EventBus {
 
   emit(envelope: EventEnvelope): void {
     if (envelope.seq > this.lastSeq) this.lastSeq = envelope.seq;
+    this.recent.set(envelope.seq, JSON.stringify(envelope.event));
+    if (this.recent.size > 500) this.recent.delete(this.recent.keys().next().value as number);
     for (const h of [...this.handlers]) {
       try {
         h(envelope);
@@ -171,9 +190,10 @@ function createHttpClient(): ApiClient {
       }
     }
     if (!res.ok) {
+      const obj = data && typeof data === "object" ? (data as Record<string, unknown>) : undefined;
       const msg =
-        (data && typeof data === "object" && "message" in data && String((data as { message: unknown }).message)) ||
-        (data && typeof data === "object" && "error" in data && String((data as { error: unknown }).error)) ||
+        (obj && typeof obj.message === "string" && obj.message) ||
+        (obj && typeof obj.error === "string" && obj.error) ||
         `${method} ${path} failed with ${res.status}`;
       throw new ApiError(res.status, msg, data);
     }
@@ -218,7 +238,7 @@ function createHttpClient(): ApiClient {
         try {
           const data = JSON.parse(String(msg.data)) as Partial<EventEnvelope>;
           if (data && typeof data.seq === "number" && data.event) {
-            if (data.seq <= events.lastSeq) return; // duplicate from replay
+            if (events.isDuplicate(data as EventEnvelope)) return; // replayed after reconnect
             events.emit(data as EventEnvelope);
           }
         } catch (err) {

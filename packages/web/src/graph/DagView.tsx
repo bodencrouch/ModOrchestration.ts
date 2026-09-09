@@ -153,7 +153,7 @@ export function DagView({ onSelect, selected }: DagViewProps) {
         <svg width={laid.width} height={laid.height} viewBox={`0 0 ${laid.width} ${laid.height}`} className="dag-svg">
           <defs>
             {(Object.keys(EDGE_COLORS) as GraphEdgeKind[]).map((k) => (
-              <marker key={k} id={`arrow-${k}`} viewBox="0 0 10 10" refX="10" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+              <marker key={k} id={`arrow-${k}`} viewBox="0 0 10 10" refX="10" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
                 <path d="M 0 0 L 10 5 L 0 10 z" fill={EDGE_COLORS[k]} />
               </marker>
             ))}

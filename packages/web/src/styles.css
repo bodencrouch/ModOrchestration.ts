@@ -1254,3 +1254,16 @@ textarea:focus {
     display: none;
   }
 }
+
+/* Flex/grid children must be allowed to shrink so long inputs never overflow. */
+.field,
+.grid-2 > *,
+.grid-3 > * {
+  min-width: 0;
+}
+.row > .field {
+  flex: 1 1 auto;
+}
+.row > .btn {
+  flex: 0 0 auto;
+}

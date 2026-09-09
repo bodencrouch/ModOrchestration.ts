@@ -102,7 +102,7 @@ export function InstallRunner({ phase }: InstallRunnerProps) {
         </div>
       </div>
       <LogPane />
-      {inst.pendingPrompt && <PromptModal prompt={inst.pendingPrompt} />}
+      {inst.pendingPrompt && <PromptModal key={inst.pendingPrompt.id} prompt={inst.pendingPrompt} />}
     </section>
   );
 }

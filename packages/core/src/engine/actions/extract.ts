@@ -1,0 +1,88 @@
+/**
+ * Extract: unpack every archive matched by the sources into
+ * `<archive dir>/<archive name without extension>/` (or `destination`).
+ * A dry run lists the archive and registers its entries in the VFS.
+ */
+
+import { ArchiveError } from "../../archive/common.js";
+import { VirtualFileSystem } from "../../fs/virtualFileSystem.js";
+import { baseName, joinPath, parentPath } from "../../fs/paths.js";
+import type { Instruction, InstructionResult, ModComponent, ModOption } from "../../model/types.js";
+import type { ArchiveReader } from "../../ports/archive.js";
+import type { InstallContext } from "../context.js";
+import { ActionError, checkCancelled, resolveDestination, resolveSources, runAction } from "./common.js";
+
+/** Strip the archive extension: "Foo v1.2.zip" -> "Foo v1.2", "x.7z.exe" -> "x.7z". */
+export function archiveFolderName(archivePath: string): string {
+  const name = baseName(archivePath);
+  const dot = name.lastIndexOf(".");
+  return dot > 0 ? name.slice(0, dot) : name;
+}
+
+/** Default extraction folder of an archive. */
+export function defaultExtractDir(archivePath: string): string {
+  return joinPath(parentPath(archivePath), archiveFolderName(archivePath));
+}
+
+export async function executeExtract(
+  ctx: InstallContext,
+  instruction: Instruction,
+  mod: ModComponent,
+  option?: ModOption,
+): Promise<InstructionResult> {
+  return runAction(ctx, instruction, mod, option, async (run) => {
+    const sources = await resolveSources(ctx, instruction.source);
+    const missing = sources.filter((s) => s.matches.length === 0);
+    if (missing.length) {
+      throw new ActionError("FileNotFoundPre", `archive not found: ${missing.map((m) => `"${m.raw}"`).join(", ")}`);
+    }
+    const explicitDest = instruction.destination?.trim() ? await resolveDestination(ctx, instruction.destination) : undefined;
+    let count = 0;
+    for (const src of sources) {
+      for (const archive of src.matches) {
+        checkCancelled(ctx);
+        const st = await ctx.fs.stat(archive);
+        if (!st || st.isDirectory) continue;
+        const dest = explicitDest ?? defaultExtractDir(archive);
+        let reader: ArchiveReader;
+        try {
+          reader = await ctx.openArchive(archive, { sevenZipPath: ctx.settings.sevenZipPath });
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          throw new ActionError("ArchiveError", `cannot open "${archive}": ${message}`);
+        }
+        try {
+          if (ctx.dryRun) {
+            const entries = await reader.list();
+            await ctx.fs.mkdirp(dest);
+            run.touch(dest);
+            if (ctx.fs instanceof VirtualFileSystem) {
+              const files = entries.filter((e) => !e.isDirectory).map((e) => ({ path: joinPath(dest, e.path), size: e.size }));
+              for (const e of entries) if (e.isDirectory) await ctx.fs.mkdirp(joinPath(dest, e.path));
+              await ctx.fs.addVirtualFiles(files);
+              run.touch(...files.map((f) => f.path));
+            }
+            ctx.logger.info(`dry run: would extract "${archive}" (${entries.length} entries) to "${dest}"`);
+          } else {
+            await ctx.fs.mkdirp(dest);
+            const written = await reader.extract(dest);
+            run.touch(dest, ...written);
+            ctx.logger.info(`extracted "${archive}" (${written.length} files) to "${dest}"`);
+          }
+        } catch (err) {
+          if (err instanceof ActionError) throw err;
+          const message = err instanceof Error ? err.message : String(err);
+          if (err instanceof ArchiveError || /archive|zip|rar|7z/i.test(message)) {
+            throw new ActionError("ArchiveError", `extracting "${archive}" failed: ${message}`);
+          }
+          throw err;
+        } finally {
+          await reader.close().catch(() => undefined);
+        }
+        run.note(`${ctx.dryRun ? "listed" : "extracted"} "${baseName(archive)}" -> "${dest}"`);
+        count++;
+      }
+    }
+    if (count === 0) throw new ActionError("FileNotFoundPre", "no archive file matched the sources");
+  });
+}

@@ -389,7 +389,8 @@ export function createMockClient(events: EventBus): ApiClient {
       telemetryEnabled: false,
       verboseLogging: false,
     },
-    file: null,
+    // Preloaded so the wizard can be exercised immediately; Setup can still reload it.
+    file: createMockFile(),
     running: false,
     cancelled: false,
     downloads: [],

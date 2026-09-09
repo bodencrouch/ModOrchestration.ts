@@ -4,7 +4,7 @@
  * blocks, [links](url), bullet and numbered lists, blockquotes, horizontal
  * rules and inline HTML comments (stripped). Everything else is plain text.
  */
-import { Fragment, type ReactNode } from "react";
+import { Fragment, createElement, type ReactNode } from "react";
 import { actions } from "../state/store";
 
 export interface MarkdownProps {
@@ -90,7 +90,8 @@ function parseBlocks(src: string): Block[] {
   return blocks;
 }
 
-const INLINE_RE = /(\*\*[^*]+\*\*|__[^_]+__|`[^`]+`|\[[^\]]+\]\([^)]+\)|\*[^*\n]+\*|_[^_\n]+_|<https?:\/\/[^>]+>|https?:\/\/[^\s<>()]+)/g;
+// Underscore emphasis is deliberately unsupported: mod file names are full of underscores.
+const INLINE_RE = /(\*\*[^*]+\*\*|`[^`]+`|\[[^\]]+\]\([^)]+\)|\*[^*\n]+\*|<https?:\/\/[^>]+>|https?:\/\/[^\s<>()]+)/g;
 
 export function renderInline(text: string, hideLinks = false): ReactNode[] {
   const out: ReactNode[] = [];
@@ -108,7 +109,7 @@ export function renderInline(text: string, hideLinks = false): ReactNode[] {
     const start = m.index ?? 0;
     pushText(text.slice(last, start));
     const tok = m[0];
-    if (tok.startsWith("**") || tok.startsWith("__")) {
+    if (tok.startsWith("**")) {
       out.push(<strong key={key++}>{renderInline(tok.slice(2, -2), hideLinks)}</strong>);
     } else if (tok.startsWith("`")) {
       out.push(<code key={key++}>{tok.slice(1, -1)}</code>);
@@ -155,8 +156,7 @@ export function Markdown({ source, hideLinks = false, className }: MarkdownProps
       {blocks.map((b, i) => {
         switch (b.kind) {
           case "heading": {
-            const Tag = `h${Math.min(6, b.level)}` as keyof JSX.IntrinsicElements;
-            return <Tag key={i}>{renderInline(b.text, hideLinks)}</Tag>;
+            return createElement(`h${Math.min(6, b.level)}`, { key: i }, ...renderInline(b.text, hideLinks));
           }
           case "paragraph":
             return <p key={i}>{renderInline(b.text, hideLinks)}</p>;

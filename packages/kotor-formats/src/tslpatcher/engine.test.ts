@@ -1,0 +1,322 @@
+import { promises as fsp } from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { Encapsulated, readEncapsulated } from "../erf.js";
+import { GffFieldType, type GffLocString, type GffStruct, addField, createGffRoot, createGffStruct, createLocString, getFieldByPath, readGff, writeGff } from "../gff.js";
+import { ResourceTypes } from "../restypes.js";
+import { createSsf, readSsf, writeSsf } from "../ssf.js";
+import { Tlk, readTlk, writeTlk } from "../tlk.js";
+import { TwoDA, read2da, write2da } from "../twoda.js";
+import { PatcherConfigError, parseChangesIni } from "./config.js";
+import { REMOVE_FILES_LIST, TslPatcher } from "./engine.js";
+import { NodePatcherFs } from "./nodeFs.js";
+
+const CHANGES = `
+[Settings]
+WindowCaption=Engine test
+BackupFiles=1
+
+[TLKList]
+StrRef0=0
+StrRef1=1
+
+[InstallList]
+install_folder0=Override
+install_folder1=Modules\\test.mod
+
+[Override]
+File0=new_item.uti
+
+[Modules\\test.mod]
+Replace0=m_area.are
+
+[2DAList]
+Table0=spells.2da
+
+[spells.2da]
+AddRow0=spells_new
+ChangeRow0=spells_fix
+AddColumn0=spells_col
+
+[spells_new]
+ExclusiveColumn=label
+label=FORCE_NEW
+name=StrRef1
+forbiditemmask=high()
+2DAMEMORY0=RowIndex
+
+[spells_fix]
+LabelIndex=FORCE_PUSH
+name=StrRef0
+
+[spells_col]
+ColumnLabel=newcol
+DefaultValue=****
+I0=5
+L1=6
+2DAMEMORY1=I0
+
+[GFFList]
+File0=p_test.utc
+
+[p_test.utc]
+!SaveAs=p_test_new.utc
+FirstName(strref)=StrRef1
+FirstName(lang0)=Renamed
+AddField0=add_feat
+
+[add_feat]
+FieldType=Struct
+Path=FeatList
+Label=
+TypeId=1
+2DAMEMORY2=ListIndex
+AddField0=add_feat_id
+
+[add_feat_id]
+FieldType=Word
+Label=Feat
+Value=2DAMEMORY0
+
+[CompileList]
+File0=missing.nss
+File1=present.nss
+
+[HACKList]
+File0=hack.ncs
+
+[hack.ncs]
+8=StrRef0
+
+[SSFList]
+File0=p_test.ssf
+
+[p_test.ssf]
+Battlecry 1=StrRef0
+`;
+
+let tmp: string;
+let gameDir: string;
+let modDir: string;
+let dataDir: string;
+
+function smallGff(fileType: string, tag: string): Uint8Array {
+  const root = createGffRoot(fileType);
+  addField(root.root, "Tag", GffFieldType.String, tag);
+  return writeGff(root);
+}
+
+async function buildFixture(): Promise<void> {
+  tmp = await fsp.mkdtemp(path.join(os.tmpdir(), "kotor-formats-engine-"));
+  gameDir = path.join(tmp, "game");
+  modDir = path.join(tmp, "mod");
+  dataDir = path.join(modDir, "tslpatchdata");
+  await fsp.mkdir(path.join(gameDir, "Override"), { recursive: true });
+  await fsp.mkdir(path.join(gameDir, "Modules"), { recursive: true });
+  await fsp.mkdir(dataDir, { recursive: true });
+
+  const dialog = new Tlk(0);
+  dialog.add("Zero");
+  dialog.add("One");
+  dialog.add("Two");
+  await fsp.writeFile(path.join(gameDir, "dialog.tlk"), writeTlk(dialog));
+
+  const spells = new TwoDA(["label", "name", "forbiditemmask"]);
+  spells.addRow("0", { label: "FORCE_PUSH", name: "100", forbiditemmask: "3" });
+  spells.addRow("1", { label: "FORCE_WAVE", name: "101", forbiditemmask: "5" });
+  await fsp.writeFile(path.join(gameDir, "Override", "spells.2da"), write2da(spells));
+
+  const utc = createGffRoot("UTC");
+  addField(utc.root, "FirstName", GffFieldType.LocString, createLocString(5, [[0, "Test"]]));
+  const feat = createGffStruct(1);
+  addField(feat, "Feat", GffFieldType.Word, 1);
+  addField(utc.root, "FeatList", GffFieldType.List, [feat]);
+  addField(utc.root, "Tag", GffFieldType.String, "p_test");
+  await fsp.writeFile(path.join(gameDir, "Override", "p_test.utc"), writeGff(utc));
+
+  const mod = new Encapsulated("MOD ");
+  mod.set("m_area", ResourceTypes.are, smallGff("ARE", "original"));
+  mod.set("other", ResourceTypes.git, smallGff("GIT", "keep"));
+  await fsp.writeFile(path.join(gameDir, "Modules", "test.mod"), writeEncapsulatedForTest(mod));
+
+  const append = new Tlk(0);
+  append.add("New Zero");
+  append.add("New One", "n_new_001");
+  await fsp.writeFile(path.join(dataDir, "append.tlk"), writeTlk(append));
+  await fsp.writeFile(path.join(dataDir, "new_item.uti"), smallGff("UTI", "new_item"));
+  await fsp.writeFile(path.join(dataDir, "m_area.are"), smallGff("ARE", "replaced"));
+  await fsp.writeFile(path.join(dataDir, "p_test.ssf"), writeSsf(createSsf()));
+  await fsp.writeFile(path.join(dataDir, "hack.ncs"), Uint8Array.from([0x4e, 0x43, 0x53, 0x20, 0x56, 0x31, 0x2e, 0x30, 0x42, 0x00, 0x00, 0x00, 0x10]));
+  await fsp.writeFile(path.join(dataDir, "present.ncs"), Uint8Array.from([1, 2, 3]));
+  await fsp.writeFile(path.join(dataDir, "changes.ini"), CHANGES);
+}
+
+function writeEncapsulatedForTest(enc: Encapsulated): Uint8Array {
+  // imported lazily to keep the fixture helper self-contained
+  return writeErfSync(enc);
+}
+import { writeErf } from "../erf.js";
+function writeErfSync(enc: Encapsulated): Uint8Array {
+  return writeErf(enc);
+}
+
+beforeEach(buildFixture);
+afterEach(async () => {
+  await fsp.rm(tmp, { recursive: true, force: true });
+});
+
+describe("TslPatcher", () => {
+  it("applies every list section to a synthetic game directory", async () => {
+    const backupDir = path.join(modDir, "backup", "run1");
+    const patcher = new TslPatcher({ tslpatchdataDir: dataDir, gameDir, fs: new NodePatcherFs(), backupDir });
+    const log = await patcher.apply(parseChangesIni(CHANGES));
+    expect(log.errors).toEqual([]);
+
+    // TLK
+    const dialog = readTlk(await fsp.readFile(path.join(gameDir, "dialog.tlk")));
+    expect(dialog.entries.map((e) => e.text)).toEqual(["Zero", "One", "Two", "New Zero", "New One"]);
+    expect(dialog.entries[4]!.soundResRef).toBe("n_new_001");
+    expect(patcher.memory.getStrRef(0)).toBe(3);
+    expect(patcher.memory.getStrRef(1)).toBe(4);
+
+    // InstallList
+    const uti = readGff(await fsp.readFile(path.join(gameDir, "Override", "new_item.uti")));
+    expect(getFieldByPath(uti, "Tag")?.value).toBe("new_item");
+    const mod = readEncapsulated(await fsp.readFile(path.join(gameDir, "Modules", "test.mod")));
+    expect(mod.fileType).toBe("MOD ");
+    expect(mod.resources).toHaveLength(2);
+    expect(getFieldByPath(readGff(mod.get("m_area", ResourceTypes.are)!.data), "Tag")?.value).toBe("replaced");
+    expect(getFieldByPath(readGff(mod.get("other", ResourceTypes.git)!.data), "Tag")?.value).toBe("keep");
+
+    // 2DA
+    const spells = read2da(await fsp.readFile(path.join(gameDir, "Override", "spells.2da")));
+    expect(spells.columns).toEqual(["label", "name", "forbiditemmask", "newcol"]);
+    expect(spells.height).toBe(3);
+    expect(spells.rows[2]!.label).toBe("2");
+    expect(spells.getCell(2, "label")).toBe("FORCE_NEW");
+    expect(spells.getCell(2, "name")).toBe("4");
+    expect(spells.getCell(2, "forbiditemmask")).toBe("6");
+    expect(spells.getCell(0, "name")).toBe("3");
+    expect(spells.getCell(0, "newcol")).toBe("5");
+    expect(spells.getCell(1, "newcol")).toBe("6");
+    expect(spells.getCell(2, "newcol")).toBe("****");
+    expect(patcher.memory.get2da(0)).toBe("2");
+    expect(patcher.memory.get2da(1)).toBe("5");
+
+    // GFF (saved under !SaveAs, original untouched)
+    const utc = readGff(await fsp.readFile(path.join(gameDir, "Override", "p_test_new.utc")));
+    const name = getFieldByPath(utc, "FirstName")!.value as GffLocString;
+    expect(name.strref).toBe(4);
+    expect(name.substrings.get(0)).toBe("Renamed");
+    const feats = getFieldByPath(utc, "FeatList")!.value as GffStruct[];
+    expect(feats).toHaveLength(2);
+    expect(feats[1]!.id).toBe(1);
+    expect(getFieldByPath(utc, "FeatList/1/Feat")).toEqual({ type: GffFieldType.Word, value: 2 });
+    expect(patcher.memory.get2da(2)).toBe("1");
+    const original = readGff(await fsp.readFile(path.join(gameDir, "Override", "p_test.utc")));
+    expect((getFieldByPath(original, "FirstName")!.value as GffLocString).strref).toBe(5);
+
+    // CompileList
+    expect(log.warnings.some((w) => /script compilation not supported/.test(w) && /missing\.nss/.test(w))).toBe(true);
+    expect(log.warnings.some((w) => /compiled from precompiled ncs/.test(w) && /present\.nss/.test(w))).toBe(true);
+    expect(Array.from(await fsp.readFile(path.join(gameDir, "Override", "present.ncs")))).toEqual([1, 2, 3]);
+
+    // HACKList: u16 big-endian StrRef0 (=3) at offset 8
+    const ncs = await fsp.readFile(path.join(gameDir, "Override", "hack.ncs"));
+    expect(Array.from(ncs.subarray(8, 10))).toEqual([0x00, 0x03]);
+    expect(ncs[12]).toBe(0x10);
+
+    // SSF
+    const ssf = readSsf(await fsp.readFile(path.join(gameDir, "Override", "p_test.ssf")));
+    expect(ssf.sounds[0]).toBe(3);
+    expect(ssf.sounds[1]).toBe(-1);
+
+    // Backups
+    expect(log.backupDir).toBe(backupDir);
+    expect(log.filesBackedUp.sort()).toEqual(
+      [path.join(gameDir, "dialog.tlk"), path.join(gameDir, "Modules", "test.mod"), path.join(gameDir, "Override", "spells.2da")].sort(),
+    );
+    const backedTlk = readTlk(await fsp.readFile(path.join(backupDir, "dialog.tlk")));
+    expect(backedTlk.entries).toHaveLength(3);
+    const backed2da = read2da(await fsp.readFile(path.join(backupDir, "Override", "spells.2da")));
+    expect(backed2da.height).toBe(2);
+    const removeList = (await fsp.readFile(path.join(backupDir, REMOVE_FILES_LIST), "latin1")).trim().split("\n").sort();
+    expect(removeList).toEqual(
+      [
+        path.join(gameDir, "Override", "new_item.uti"),
+        path.join(gameDir, "Override", "p_test_new.utc"),
+        path.join(gameDir, "Override", "present.ncs"),
+        path.join(gameDir, "Override", "hack.ncs"),
+        path.join(gameDir, "Override", "p_test.ssf"),
+      ].sort(),
+    );
+    expect(log.filesWritten).toHaveLength(8);
+  });
+
+  it("is idempotent for ExclusiveColumn rows and skips existing File<N> installs", async () => {
+    const fs = new NodePatcherFs();
+    await new TslPatcher({ tslpatchdataDir: dataDir, gameDir, fs, backupDir: path.join(modDir, "b1") }).apply(parseChangesIni(CHANGES));
+    const log = await new TslPatcher({ tslpatchdataDir: dataDir, gameDir, fs, backupDir: path.join(modDir, "b2") }).apply(parseChangesIni(CHANGES));
+    expect(log.errors).toEqual([]);
+    expect(log.warnings.some((w) => /new_item\.uti already exists/.test(w))).toBe(true);
+    const spells = read2da(await fsp.readFile(path.join(gameDir, "Override", "spells.2da")));
+    expect(spells.height).toBe(3);
+    expect(spells.getCell(2, "name")).toBe("6"); // StrRef1 of the second run
+    expect(log.errors.length).toBe(0);
+  });
+
+  it("resolves game paths case-insensitively", async () => {
+    await fsp.rename(path.join(gameDir, "Override"), path.join(gameDir, "override"));
+    await fsp.rename(path.join(gameDir, "dialog.tlk"), path.join(gameDir, "DIALOG.TLK"));
+    const patcher = new TslPatcher({ tslpatchdataDir: dataDir, gameDir, fs: new NodePatcherFs(), backupDir: path.join(modDir, "b") });
+    const log = await patcher.apply(parseChangesIni(CHANGES));
+    expect(log.errors).toEqual([]);
+    expect(await fsp.readdir(gameDir)).not.toContain("Override");
+    expect(await fsp.readdir(path.join(gameDir, "override"))).toContain("p_test_new.utc");
+    expect(readTlk(await fsp.readFile(path.join(gameDir, "DIALOG.TLK"))).entries).toHaveLength(5);
+  });
+
+  it("dry run reads and resolves everything but writes nothing", async () => {
+    const before = await snapshot(tmp);
+    const patcher = new TslPatcher({ tslpatchdataDir: dataDir, gameDir, fs: new NodePatcherFs(), dryRun: true, backupDir: path.join(modDir, "backup") });
+    const log = await patcher.apply(parseChangesIni(CHANGES));
+    expect(log.errors).toEqual([]);
+    expect(log.filesWritten).toHaveLength(8);
+    expect(log.filesBackedUp).toEqual([]);
+    expect(log.backupDir).toBeUndefined();
+    expect(patcher.memory.getStrRef(1)).toBe(4);
+    expect(patcher.memory.get2da(0)).toBe("2");
+    expect(await snapshot(tmp)).toEqual(before);
+  });
+
+  it("reports unresolved tokens and missing files as errors without aborting other files", async () => {
+    const ini = "[2DAList]\nTable0=spells.2da\nTable1=nothere.2da\n[spells.2da]\nChangeRow0=fix\n[fix]\nRowLabel=0\nname=StrRef9\n[nothere.2da]\n[SSFList]\nFile0=p_test.ssf\n[p_test.ssf]\nDeath=42\n";
+    const patcher = new TslPatcher({ tslpatchdataDir: dataDir, gameDir, fs: new NodePatcherFs(), backupDir: path.join(modDir, "b") });
+    const log = await patcher.apply(parseChangesIni(ini));
+    expect(log.errors).toHaveLength(2);
+    expect(log.errors[0]).toMatch(/StrRef9/);
+    expect(log.errors[1]).toMatch(/nothere\.2da/);
+    expect(readSsf(await fsp.readFile(path.join(gameDir, "Override", "p_test.ssf"))).sounds[15]).toBe(42);
+    const spells = read2da(await fsp.readFile(path.join(gameDir, "Override", "spells.2da")));
+    expect(spells.getCell(0, "name")).toBe("100");
+  });
+
+  it("throws PatcherConfigError for a malformed ini", () => {
+    expect(() => parseChangesIni("[GFFList]\nFile0=p_test.utc\n")).toThrow(PatcherConfigError);
+    expect(() => parseChangesIni("[2DAList]\nTable0=spells.2da\n[spells.2da]\nAddRow0=nope\n")).toThrow(PatcherConfigError);
+  });
+});
+
+async function snapshot(root: string): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  const walk = async (dir: string): Promise<void> => {
+    for (const entry of await fsp.readdir(dir, { withFileTypes: true })) {
+      const p = path.join(dir, entry.name);
+      if (entry.isDirectory()) await walk(p);
+      else out.set(path.relative(root, p), Buffer.from(await fsp.readFile(p)).toString("base64"));
+    }
+  };
+  await walk(root);
+  return out;
+}
