@@ -28,6 +28,7 @@ import type {
   UserSettings,
   ValidationReport,
 } from "../types";
+import { createMockClient } from "./mock";
 
 export type ServerEvent = InstallEvent | DownloadEvent;
 export interface EventEnvelope {
@@ -292,20 +293,9 @@ let instance: ApiClient | undefined;
 /** The process-wide API client (real or mock depending on the URL / env). */
 export function getApi(): ApiClient {
   if (!instance) {
-    if (isMockMode()) {
-      // Lazy require keeps the mock out of the hot path; it's tiny anyway.
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      instance = createMockClientSync();
-    } else {
-      instance = createHttpClient();
-    }
+    instance = isMockMode() ? createMockClient(new EventBus()) : createHttpClient();
   }
   return instance;
-}
-
-import { createMockClient } from "./mock";
-function createMockClientSync(): ApiClient {
-  return createMockClient(new EventBus());
 }
 
 export const api: ApiClient = getApi();
