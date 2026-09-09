@@ -66,11 +66,12 @@ export class BinaryReader {
   private readonly view: DataView;
   private pos: number;
 
-  constructor(
-    readonly bytes: Uint8Array,
-    offset = 0,
-  ) {
-    this.view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  /** the underlying buffer */
+  readonly data: Uint8Array;
+
+  constructor(data: Uint8Array, offset = 0) {
+    this.data = data;
+    this.view = new DataView(data.buffer, data.byteOffset, data.byteLength);
     this.pos = offset;
   }
 
@@ -78,14 +79,14 @@ export class BinaryReader {
     return this.pos;
   }
   set position(value: number) {
-    if (value < 0 || value > this.bytes.length) throw new RangeError(`seek to ${value} outside buffer of ${this.bytes.length} bytes`);
+    if (value < 0 || value > this.data.length) throw new RangeError(`seek to ${value} outside buffer of ${this.data.length} bytes`);
     this.pos = value;
   }
   get length(): number {
-    return this.bytes.length;
+    return this.data.length;
   }
   get remaining(): number {
-    return this.bytes.length - this.pos;
+    return this.data.length - this.pos;
   }
 
   seek(position: number): void {
@@ -96,8 +97,8 @@ export class BinaryReader {
   }
 
   private need(n: number): number {
-    if (this.pos + n > this.bytes.length) {
-      throw new RangeError(`read of ${n} bytes at offset ${this.pos} exceeds buffer of ${this.bytes.length} bytes`);
+    if (this.pos + n > this.data.length) {
+      throw new RangeError(`read of ${n} bytes at offset ${this.pos} exceeds buffer of ${this.data.length} bytes`);
     }
     const p = this.pos;
     this.pos += n;
@@ -137,7 +138,7 @@ export class BinaryReader {
   /** Read `n` raw bytes (copied). */
   bytes(n: number): Uint8Array {
     const p = this.need(n);
-    return this.bytes.slice(p, p + n);
+    return this.data.slice(p, p + n);
   }
   /** Read a fixed-size, null-padded CP-1252 string (stops at the first NUL). */
   fixedString(n: number): string {
@@ -153,22 +154,22 @@ export class BinaryReader {
   /** Read a NUL-terminated CP-1252 string; the terminator is consumed. */
   cstring(): string {
     let end = this.pos;
-    while (end < this.bytes.length && this.bytes[end] !== 0) end++;
-    const s = decodeCp1252(this.bytes.subarray(this.pos, end));
-    this.pos = Math.min(end + 1, this.bytes.length);
+    while (end < this.data.length && this.data[end] !== 0) end++;
+    const s = decodeCp1252(this.data.subarray(this.pos, end));
+    this.pos = Math.min(end + 1, this.data.length);
     return s;
   }
   /** Read a string terminated by the given byte (terminator consumed). */
   stringUntil(terminator: number): string {
     let end = this.pos;
-    while (end < this.bytes.length && this.bytes[end] !== terminator) end++;
-    const s = decodeCp1252(this.bytes.subarray(this.pos, end));
-    this.pos = Math.min(end + 1, this.bytes.length);
+    while (end < this.data.length && this.data[end] !== terminator) end++;
+    const s = decodeCp1252(this.data.subarray(this.pos, end));
+    this.pos = Math.min(end + 1, this.data.length);
     return s;
   }
   peekU8(): number {
-    if (this.pos >= this.bytes.length) throw new RangeError("peek past end of buffer");
-    return this.bytes[this.pos]!;
+    if (this.pos >= this.data.length) throw new RangeError("peek past end of buffer");
+    return this.data[this.pos]!;
   }
 }
 

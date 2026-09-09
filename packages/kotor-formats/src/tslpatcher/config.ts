@@ -470,8 +470,8 @@ function parseInstallList(ini: IniDocument): InstallFolderConfig[] {
   if (!s) return out;
   for (const e of s.numbered("install_folder")) {
     const folderSection = requireSection(ini, e.value.trim(), s.name, e.key);
-    const dest = normalizeDest(e.value.startsWith("[") ? undefined : folderSection.get("!Destination") ?? folderSection.name, folderSection.name);
-    const folder: InstallFolderConfig = { destination: dest, files: [] };
+    // The section name is the destination folder (or archive path) relative to the game dir.
+    const folder: InstallFolderConfig = { destination: normalizeDest(e.value, "Override"), files: [] };
     for (const f of fileListEntries(folderSection)) {
       const filename = f.value.trim();
       const { common, section } = readCommon(ini, filename, f.replace, folderSection.name, f.key, false);

@@ -306,7 +306,6 @@ function toInt(v: GffValue, label: string): number {
   if (typeof v === "number") return v;
   if (typeof v === "bigint") return Number(v);
   if (typeof v === "string" && v.trim() !== "" && Number.isFinite(Number(v))) return Number(v);
-  if (typeof v === "boolean") return v ? 1 : 0;
   throw new GffError(`field "${label}" expects a number, got ${describe(v)}`);
 }
 function toBig(v: GffValue, label: string): bigint {
