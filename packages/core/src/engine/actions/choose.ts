@@ -16,12 +16,11 @@ export const DEFAULT_CHOOSE_DESTINATION = "<<kotorDirectory>>/Override";
 
 /** True when every source of the instruction is a GUID (option mode). */
 export function isOptionChoose(instruction: Instruction): boolean {
-  return instruction.source.length > 0 && instruction.source.every((s) => isGuid(s.trim()) || isGuid(normalizeGuid(s.trim())));
+  return instruction.source.length > 0 && instruction.source.every((s) => isGuid(s.trim()));
 }
 
 function guidOf(s: string): Guid {
-  const t = s.trim();
-  return isGuid(t) ? t : normalizeGuid(t);
+  return normalizeGuid(s.trim());
 }
 
 /** Folder candidates a folder-mode Choose would offer (directories only). */

@@ -54,9 +54,9 @@ export async function executeExtract(
         try {
           if (ctx.dryRun) {
             const entries = await reader.list();
-            await ctx.fs.mkdirp(dest);
             run.touch(dest);
             if (ctx.fs instanceof VirtualFileSystem) {
+              await ctx.fs.mkdirp(dest);
               const files = entries.filter((e) => !e.isDirectory).map((e) => ({ path: joinPath(dest, e.path), size: e.size }));
               for (const e of entries) if (e.isDirectory) await ctx.fs.mkdirp(joinPath(dest, e.path));
               await ctx.fs.addVirtualFiles(files);

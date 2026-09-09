@@ -1,0 +1,80 @@
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+
+import { RealFileSystem } from "../fs/realFileSystem.js";
+import { NullLogger } from "../logging/logger.js";
+import { createPatcher, decodeIni, listNamespaces } from "./patcherPort.js";
+import { makeSandbox, writeText, type Sandbox } from "./testing.js";
+
+let sb: Sandbox;
+beforeEach(async () => {
+  sb = await makeSandbox("modsync-patcher-");
+});
+afterEach(async () => {
+  await sb.cleanup();
+});
+
+describe("patcher port", () => {
+  it("lists namespaces from the tslpatchdata dir or its parent", async () => {
+    const fs = new RealFileSystem();
+    expect(await listNamespaces(`${sb.mods}/none/tslpatchdata`, fs)).toBeUndefined();
+    await writeText(`${sb.mods}/a/tslpatchdata/changes.ini`, "");
+    await writeText(`${sb.mods}/a/Namespaces.INI`, "[Namespaces]\nNamespace0=x\n\n[x]\nName=Only\n");
+    const ns = await listNamespaces(`${sb.mods}/a/tslpatchdata`, fs);
+    expect(ns?.map((n) => [n.name, n.iniName])).toEqual([["Only", "changes.ini"]]);
+  });
+
+  it("decodes windows-1252 and UTF-8 BOM inis", () => {
+    expect(decodeIni(new Uint8Array([0x4e, 0xe9]))).toBe("Né");
+    expect(decodeIni(new Uint8Array([0xef, 0xbb, 0xbf, 0x4e, 0xc3, 0xa9]))).toBe("Né");
+  });
+
+  it("native engine fails closed on a malformed ini and reports files in dry run", async () => {
+    await writeText(`${sb.mods}/p/tslpatchdata/changes.ini`, "[InstallList]\ninstall_folder0=Override\n\n[Override]\nFile0=a.txt\n");
+    await writeText(`${sb.mods}/p/tslpatchdata/a.txt`, "a");
+    const patcher = createPatcher({ ...sb.settings, patcherEngine: "Native" }, NullLogger);
+    const dry = await patcher.install({ tslpatchdataDir: `${sb.mods}/p/tslpatchdata`, gameDir: sb.kotor, dryRun: true });
+    expect(dry.ok).toBe(true);
+    expect(dry.filesWritten).toEqual([`${sb.kotor}/Override/a.txt`]);
+    await writeText(`${sb.mods}/bad/tslpatchdata/changes.ini`, "[InstallList]\ninstall_folder0=Override\n\n[Override]\nBogus=1\n");
+    const bad = await patcher.install({ tslpatchdataDir: `${sb.mods}/bad/tslpatchdata`, gameDir: sb.kotor, dryRun: true });
+    expect(bad.ok).toBe(false);
+    expect(bad.errors[0]).toMatch(/Bogus|expected/);
+    const missing = await patcher.install({ tslpatchdataDir: `${sb.mods}/nope`, gameDir: sb.kotor, dryRun: false });
+    expect(missing.ok).toBe(false);
+  });
+
+  it("external engines only parse the ini during a dry run and fail without a path otherwise", async () => {
+    await writeText(`${sb.mods}/p/tslpatchdata/changes.ini`, "[InstallList]\n");
+    const holo = createPatcher({ ...sb.settings, patcherEngine: "HoloPatcher" }, NullLogger);
+    const dry = await holo.install({ tslpatchdataDir: `${sb.mods}/p/tslpatchdata`, gameDir: sb.kotor, dryRun: true });
+    expect(dry.ok).toBe(true);
+    expect(dry.warnings[0]).toContain("dry run");
+    const real = await holo.install({ tslpatchdataDir: `${sb.mods}/p/tslpatchdata`, gameDir: sb.kotor, dryRun: false });
+    expect(real.ok).toBe(false);
+    expect(real.errors[0]).toContain("holoPatcherPath");
+    const legacy = createPatcher({ ...sb.settings, patcherEngine: "TSLPatcher" }, NullLogger);
+    const real2 = await legacy.install({ tslpatchdataDir: `${sb.mods}/p/tslpatchdata`, gameDir: sb.kotor, dryRun: false });
+    expect(real2.ok).toBe(false);
+    expect(real2.errors[0]).toContain("TSLPatcher.exe");
+  });
+
+  it("HoloPatcher spawns the configured executable with the documented arguments", async () => {
+    if (process.platform === "win32") return;
+    await writeText(`${sb.mods}/p/tslpatchdata/changes.ini`, "[InstallList]\n");
+    const script = `${sb.root}/holo.sh`;
+    await writeText(script, `#!/bin/sh\necho "$@" > "${sb.root}/args.txt"\necho installed\nexit 0\n`);
+    const { chmod, readFile } = await import("node:fs/promises");
+    await chmod(script, 0o755);
+    const holo = createPatcher({ ...sb.settings, patcherEngine: "HoloPatcher", holoPatcherPath: script }, NullLogger);
+    const r = await holo.install({ tslpatchdataDir: `${sb.mods}/p/tslpatchdata`, gameDir: sb.kotor, namespaceIndex: 2, dryRun: false });
+    expect(r.ok).toBe(true);
+    expect(r.log).toContain("installed");
+    expect(await readFile(`${sb.root}/args.txt`, "utf8")).toBe(
+      `--install --game-dir ${sb.kotor} --tslpatchdata ${sb.mods}/p/tslpatchdata --namespace-option-index 2 --console\n`,
+    );
+    await writeText(script, "#!/bin/sh\nexit 2\n");
+    const fail = await holo.install({ tslpatchdataDir: `${sb.mods}/p/tslpatchdata`, gameDir: sb.kotor, dryRun: false });
+    expect(fail.ok).toBe(false);
+    expect(fail.errors[0]).toContain("code 2");
+  });
+});

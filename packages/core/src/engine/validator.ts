@@ -213,7 +213,7 @@ export async function validate(
 
   // Required downloads (Extract sources of selected mods), resolved against the untouched base.
   const requiredDownloads: RequiredDownload[] = [];
-  const modByGuid = new Map(file.mods.map((m) => [m.guid, m]));
+  const modByGuid = indexFile(file).mods; // first occurrence wins, like the selection
   for (const mod of selection.mods) {
     const instructions = [...mod.instructions, ...mod.options.filter((o) => selection.selectedGuids.has(o.guid)).flatMap((o) => o.instructions)];
     for (const instr of instructions) {
@@ -283,9 +283,11 @@ export async function validate(
     issues.push(issue);
   };
 
+  const ran = new Set<Guid>();
   for (const guid of order) {
     const mod = modByGuid.get(guid);
-    if (!mod) continue;
+    if (!mod || ran.has(guid)) continue;
+    ran.add(guid);
     for (const instr of mod.instructions) await runOne(mod, instr);
     for (const option of mod.options) {
       if (!selection.selectedGuids.has(option.guid)) continue;
