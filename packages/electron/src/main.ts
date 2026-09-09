@@ -46,11 +46,12 @@ const pendingNxm: string[] = [];
 // Helpers
 // ---------------------------------------------------------------------------
 
-function appUrl(extra: Record<string, string> = {}): string {
+function appUrl(extra: Record<string, string> = {}, hash = ""): string {
   if (!baseUrl) throw new Error("server not started");
   const u = new URL("/", baseUrl);
   u.searchParams.set("token", token);
   for (const [k, v] of Object.entries(extra)) u.searchParams.set(k, v);
+  if (hash) u.hash = hash;
   return u.toString();
 }
 
@@ -232,7 +233,7 @@ function buildMenu(): void {
       {
         label: "Open Editor",
         accelerator: "CmdOrCtrl+E",
-        click: () => void ensureWindow().loadURL(appUrl({ mode: "editor" })),
+        click: () => void ensureWindow().loadURL(appUrl({}, "editor")),
       },
       { type: "separator" },
       {
